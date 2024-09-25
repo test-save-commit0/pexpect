@@ -91,7 +91,53 @@ def run(command, timeout=30, withexitstatus=False, events=None, extra_args=
     instead of bytes. You can pass *codec_errors* to control how errors in
     encoding and decoding are handled.
     """
-    pass
+    child = spawn(command, timeout=timeout, maxread=2000, logfile=logfile, cwd=cwd, env=env, **kwargs)
+    
+    if events is None:
+        events = {}
+    if extra_args is None:
+        extra_args = {}
+    
+    output = []
+    event_count = 0
+    
+    while True:
+        try:
+            index = child.expect(list(events.keys()) + [EOF, TIMEOUT], timeout=timeout)
+        except EOF:
+            output.append(child.before)
+            break
+        except TIMEOUT:
+            output.append(child.before)
+            break
+        
+        output.append(child.before)
+        event_count += 1
+        
+        if index < len(events):
+            event = list(events.values())[index]
+            if isinstance(event, str):
+                child.sendline(event)
+            elif callable(event):
+                callback_result = event({
+                    'child': child,
+                    'event_count': event_count,
+                    'extra_args': extra_args
+                })
+                if callback_result is True:
+                    break
+                elif isinstance(callback_result, str):
+                    child.sendline(callback_result)
+    
+    child.close()
+    exitstatus = child.exitstatus
+    
+    output = ''.join(output)
+    
+    if withexitstatus:
+        return (output, exitstatus)
+    else:
+        return output
 
 
 def runu(command, timeout=30, withexitstatus=False, events=None, extra_args
