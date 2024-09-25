@@ -98,4 +98,10 @@ def runu(command, timeout=30, withexitstatus=False, events=None, extra_args
     =None, logfile=None, cwd=None, env=None, **kwargs):
     """Deprecated: pass encoding to run() instead.
     """
-    pass
+    import warnings
+    warnings.warn("runu() is deprecated. Use run() with encoding='utf-8' instead.",
+                  DeprecationWarning, stacklevel=2)
+    
+    kwargs['encoding'] = kwargs.get('encoding', 'utf-8')
+    return run(command, timeout, withexitstatus, events, extra_args,
+               logfile, cwd, env, **kwargs)
