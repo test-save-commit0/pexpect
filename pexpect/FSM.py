@@ -116,7 +116,8 @@ class FSM:
         """This sets the current_state to the initial_state and sets
         input_symbol to None. The initial state was set by the constructor
         __init__(). """
-        pass
+        self.current_state = self.initial_state
+        self.input_symbol = None
 
     def add_transition(self, input_symbol, state, action=None, next_state=None
         ):
@@ -130,7 +131,9 @@ class FSM:
 
         You can also set transitions for a list of symbols by using
         add_transition_list(). """
-        pass
+        if next_state is None:
+            next_state = state
+        self.state_transitions[(input_symbol, state)] = (action, next_state)
 
     def add_transition_list(self, list_input_symbols, state, action=None,
         next_state=None):
@@ -142,7 +145,8 @@ class FSM:
         The action may be set to None in which case the process() method will
         ignore the action and only set the next_state. The next_state may be
         set to None in which case the current state will be unchanged. """
-        pass
+        for input_symbol in list_input_symbols:
+            self.add_transition(input_symbol, state, action, next_state)
 
     def add_transition_any(self, state, action=None, next_state=None):
         """This adds a transition that associates:
@@ -156,7 +160,9 @@ class FSM:
         The action may be set to None in which case the process() method will
         ignore the action and only set the next_state. The next_state may be
         set to None in which case the current state will be unchanged. """
-        pass
+        if next_state is None:
+            next_state = state
+        self.state_transitions_any[state] = (action, next_state)
 
     def set_default_transition(self, action, next_state):
         """This sets the default transition. This defines an action and
@@ -167,7 +173,7 @@ class FSM:
 
         The default transition can be removed by setting the attribute
         default_transition to None. """
-        pass
+        self.default_transition = (action, next_state)
 
     def get_transition(self, input_symbol, state):
         """This returns (action, next state) given an input_symbol and state.
@@ -190,7 +196,15 @@ class FSM:
 
         4. No transition was defined. If we get here then raise an exception.
         """
-        pass
+        if (input_symbol, state) in self.state_transitions:
+            return self.state_transitions[(input_symbol, state)]
+        elif state in self.state_transitions_any:
+            return self.state_transitions_any[state]
+        elif self.default_transition is not None:
+            return self.default_transition
+        else:
+            raise ExceptionFSM('Transition is undefined: (%s, %s).' %
+                               (str(input_symbol), str(state)))
 
     def process(self, input_symbol):
         """This is the main method that you call to process input. This may
@@ -200,12 +214,18 @@ class FSM:
         is not called and only the current state is changed. This method
         processes one complete input symbol. You can process a list of symbols
         (or a string) by calling process_list(). """
-        pass
+        self.input_symbol = input_symbol
+        (self.action, self.next_state) = self.get_transition(self.input_symbol, self.current_state)
+        if self.action is not None:
+            self.action(self)
+        self.current_state = self.next_state
+        self.next_state = None
 
     def process_list(self, input_symbols):
         """This takes a list and sends each element to process(). The list may
         be a string or any iterable object. """
-        pass
+        for s in input_symbols:
+            self.process(s)
 
 
 import sys
@@ -217,7 +237,27 @@ def main():
     """This is where the example starts and the FSM state transitions are
     defined. Note that states are strings (such as 'INIT'). This is not
     necessary, but it makes the example easier to read. """
-    pass
+    # Example usage of the FSM class
+    fsm = FSM('INIT')
+    fsm.add_transition('a', 'INIT', None, 'A')
+    fsm.add_transition('b', 'A', None, 'B')
+    fsm.add_transition('c', 'B', None, 'C')
+    fsm.add_transition_any('C', None, 'INIT')
+
+    print("Initial state:", fsm.current_state)
+    fsm.process('a')
+    print("After processing 'a':", fsm.current_state)
+    fsm.process('b')
+    print("After processing 'b':", fsm.current_state)
+    fsm.process('c')
+    print("After processing 'c':", fsm.current_state)
+    fsm.process('d')
+    print("After processing 'd':", fsm.current_state)
+
+    print("\nProcessing a list of inputs:")
+    fsm.reset()
+    fsm.process_list('abcd')
+    print("Final state:", fsm.current_state)
 
 
 if __name__ == '__main__':
