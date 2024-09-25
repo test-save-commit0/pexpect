@@ -101,7 +101,12 @@ class SpawnBase(object):
 
         The timeout parameter is ignored.
         """
-        pass
+        try:
+            return os.read(self.child_fd, size)
+        except OSError as e:
+            if e.errno == errno.EAGAIN:
+                return None
+            raise
 
     def compile_pattern_list(self, patterns):
         """This compiles a pattern-string or a list of pattern-strings.
@@ -126,7 +131,25 @@ class SpawnBase(object):
                 i = self.expect_list(cpl, timeout)
                 ...
         """
-        pass
+        if patterns is None:
+            return []
+        if not isinstance(patterns, list):
+            patterns = [patterns]
+
+        compiled_pattern_list = []
+        for p in patterns:
+            if isinstance(p, (str, bytes)):
+                compiled_pattern_list.append(re.compile(p, re.DOTALL))
+            elif p is EOF:
+                compiled_pattern_list.append(EOF)
+            elif p is TIMEOUT:
+                compiled_pattern_list.append(TIMEOUT)
+            elif isinstance(p, type(re.compile(''))):
+                compiled_pattern_list.append(p)
+            else:
+                raise TypeError('Unsupported pattern type: %s' % type(p))
+
+        return compiled_pattern_list
 
     def expect(self, pattern, timeout=-1, searchwindowsize=-1, async_=False,
         **kw):
@@ -223,7 +246,12 @@ class SpawnBase(object):
 
             index = yield from p.expect(patterns, async_=True)
         """
-        pass
+        compiled_pattern_list = self.compile_pattern_list(pattern)
+        return self.expect_list(compiled_pattern_list,
+                                timeout=timeout,
+                                searchwindowsize=searchwindowsize,
+                                async_=async_,
+                                **kw)
 
     def expect_list(self, pattern_list, timeout=-1, searchwindowsize=-1,
         async_=False, **kw):
@@ -239,7 +267,16 @@ class SpawnBase(object):
         Like :meth:`expect`, passing ``async_=True`` will make this return an
         asyncio coroutine.
         """
-        pass
+        if timeout == -1:
+            timeout = self.timeout
+        if searchwindowsize == -1:
+            searchwindowsize = self.searchwindowsize
+
+        exp = Expecter(self, searcher_re(pattern_list), searchwindowsize)
+        if async_:
+            return exp.expect_async(timeout, **kw)
+        else:
+            return exp.expect_loop(timeout)
 
     def expect_exact(self, pattern_list, timeout=-1, searchwindowsize=-1,
         async_=False, **kw):
