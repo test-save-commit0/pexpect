@@ -114,27 +114,45 @@ class ANSI(term):
 
     def process(self, c):
         """Process a single character. Called by :meth:`write`."""
-        pass
+        self.state.process(c)
 
     def write(self, s):
         """Process text, writing it to the virtual screen while handling
         ANSI escape codes.
         """
-        pass
+        for c in s:
+            self.process(c)
 
     def write_ch(self, ch):
         """This puts a character at the current cursor position. The cursor
         position is moved forward with wrap-around, but no scrolling is done if
         the cursor hits the lower-right corner of the screen. """
-        pass
+        r, c = self.cur_r, self.cur_c
+        self.put_abs(r, c, ch)
+        self.cursor_forward()
 
     def do_sgr(self, fsm):
         """Select Graphic Rendition, e.g. color. """
-        pass
+        for code in fsm.memory:
+            if code == 0:
+                self.attr = 0
+            elif code in range(30, 38):
+                self.attr = (self.attr & 0xfff0) | (code - 30)
+            elif code in range(40, 48):
+                self.attr = (self.attr & 0xff0f) | ((code - 40) << 4)
+            elif code == 1:
+                self.attr = self.attr | 0x0100
+            elif code == 4:
+                self.attr = self.attr | 0x0200
+            elif code == 7:
+                self.attr = self.attr | 0x0400
 
     def do_decsca(self, fsm):
         """Select character protection attribute. """
-        pass
+        if fsm.memory and fsm.memory[0] == 1:
+            self.attr = self.attr | 0x0800
+        else:
+            self.attr = self.attr & ~0x0800
 
     def do_modecrap(self, fsm):
         """Handler for [?<number>h and [?<number>l. If anyone
