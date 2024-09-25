@@ -237,11 +237,43 @@ class spawn(SpawnBase):
         fork/exec type of stuff for a pty. This is called by __init__. If args
         is empty then command will be parsed (split on spaces) and args will be
         set to parsed arguments. """
-        pass
+        if not isinstance(args, list):
+            args = [args]
+
+        if not args:
+            self.args = split_command_line(command)
+            self.command = self.args[0]
+        else:
+            self.args = [command] + args
+            self.command = command
+
+        command_with_path = which(self.command)
+        if command_with_path is None:
+            raise ExceptionPexpect('The command was not found or was not executable: %s.' % self.command)
+
+        self.command = command_with_path
+        self.args[0] = self.command
+
+        self.name = '<' + ' '.join(self.args) + '>'
+
+        assert self.pid is None, 'The pid member should be None.'
+        assert self.command is not None, 'The command member should not be None.'
+
+        kwargs = {'echo': self.echo, 'preexec_fn': preexec_fn}
+        if dimensions is not None:
+            kwargs['dimensions'] = dimensions
+
+        self.ptyproc = self._spawnpty(self.args, env=self.env, cwd=self.cwd, **kwargs)
+
+        self.pid = self.ptyproc.pid
+        self.child_fd = self.ptyproc.fd
+
+        self.terminated = False
+        self.closed = False
 
     def _spawnpty(self, args, **kwargs):
         """Spawn a pty and return an instance of PtyProcess."""
-        pass
+        return ptyprocess.PtyProcess.spawn(args, **kwargs)
 
     def close(self, force=True):
         """This closes the connection with the child application. Note that
@@ -249,7 +281,12 @@ class spawn(SpawnBase):
         behavior with files. Set force to True if you want to make sure that
         the child is terminated (SIGKILL is sent if the child ignores SIGHUP
         and SIGINT). """
-        pass
+        if not self.closed:
+            self.flush()
+            self.ptyproc.close(force=force)
+            self.isalive()  # Update exit status
+            self.child_fd = -1
+            self.closed = True
 
     def isatty(self):
         """This returns True if the file descriptor is open and connected to a
@@ -259,7 +296,7 @@ class spawn(SpawnBase):
         the child pty may not appear as a terminal device.  This means
         methods such as setecho(), setwinsize(), getwinsize() may raise an
         IOError. """
-        pass
+        return os.isatty(self.child_fd)
 
     def waitnoecho(self, timeout=-1):
         """This waits until the terminal ECHO flag is set False. This returns
@@ -277,7 +314,16 @@ class spawn(SpawnBase):
         If timeout==-1 then this method will use the value in self.timeout.
         If timeout==None then this method to block until ECHO flag is False.
         """
-        pass
+        if timeout == -1:
+            timeout = self.timeout
+        if timeout is not None:
+            end_time = time.time() + timeout
+        while True:
+            if not self.getecho():
+                return True
+            if timeout is not None and time.time() > end_time:
+                return False
+            time.sleep(0.1)
 
     def getecho(self):
         """This returns the terminal echo mode. This returns True if echo is
@@ -285,7 +331,9 @@ class spawn(SpawnBase):
         to enter a password often set ECHO False. See waitnoecho().
 
         Not supported on platforms where ``isatty()`` returns False.  """
-        pass
+        if not self.isatty():
+            raise IOError('getecho() failed: device is not a tty')
+        return self.ptyproc.getecho()
 
     def setecho(self, state):
         """This sets the terminal echo mode on or off. Note that anything the
@@ -319,7 +367,9 @@ class spawn(SpawnBase):
 
         Not supported on platforms where ``isatty()`` returns False.
         """
-        pass
+        if not self.isatty():
+            raise IOError('setecho() failed: device is not a tty')
+        self.ptyproc.setecho(state)
 
     def read_nonblocking(self, size=1, timeout=-1):
         """This reads at most size characters from the child application. It
@@ -346,7 +396,26 @@ class spawn(SpawnBase):
 
         This is a wrapper around os.read(). It uses select.select() or
         select.poll() to implement the timeout. """
-        pass
+        if timeout == -1:
+            timeout = self.timeout
+        
+        if not self.isalive():
+            raise EOF('End Of File (EOF). Child process has exited.')
+
+        if self.use_poll:
+            poller = poll_ignore_interrupts()
+            poller.register(self.child_fd, POLLIN)
+        else:
+            poller = None
+
+        try:
+            s, _ = self._read_nonblocking_impl(size, timeout, poller)
+        except TIMEOUT:
+            self.flag_eof = True
+            raise
+
+        self._log(s, 'read')
+        return s
 
     def write(self, s):
         """This is similar to send() except that there is no return value.
