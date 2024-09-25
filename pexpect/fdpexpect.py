@@ -69,32 +69,47 @@ class fdspawn(SpawnBase):
         Calling this method a second time does nothing, but if the file
         descriptor was closed elsewhere, :class:`OSError` will be raised.
         """
-        pass
+        if not self.closed:
+            os.close(self.child_fd)
+            self.closed = True
 
     def isalive(self):
         """This checks if the file descriptor is still valid. If :func:`os.fstat`
         does not raise an exception then we assume it is alive. """
-        pass
+        if self.closed:
+            return False
+        try:
+            os.fstat(self.child_fd)
+            return True
+        except OSError:
+            return False
 
     def terminate(self, force=False):
         """Deprecated and invalid. Just raises an exception."""
-        pass
+        raise ExceptionPexpect('This method is not valid for file descriptors.')
 
     def send(self, s):
         """Write to fd, return number of bytes written"""
-        pass
+        s = self._coerce_send_string(s)
+        self._log(s, 'send')
+        
+        b = self._encoder.encode(s, final=False)
+        return os.write(self.child_fd, b)
 
     def sendline(self, s):
         """Write to fd with trailing newline, return number of bytes written"""
-        pass
+        n = self.send(s)
+        n += self.send(self.linesep)
+        return n
 
     def write(self, s):
         """Write to fd, return None"""
-        pass
+        self.send(s)
 
     def writelines(self, sequence):
         """Call self.write() for each item in sequence"""
-        pass
+        for s in sequence:
+            self.write(s)
 
     def read_nonblocking(self, size=1, timeout=-1):
         """
@@ -112,4 +127,34 @@ class fdspawn(SpawnBase):
             ready to read. When -1 (default), use self.timeout. When 0, poll.
         :return: String containing the bytes read
         """
-        pass
+        if timeout == -1:
+            timeout = self.timeout
+        
+        if self.use_poll:
+            rfd = poll_ignore_interrupts([self.child_fd], timeout)
+        else:
+            rfd = select_ignore_interrupts([self.child_fd], [], [], timeout)[0]
+        
+        if not rfd:
+            raise TIMEOUT('Timeout exceeded.')
+        
+        if self.closed:
+            raise OSError('File descriptor %d is closed.' % self.child_fd)
+
+        try:
+            s = os.read(self.child_fd, size)
+        except OSError as err:
+            if err.args[0] == errno.EIO:
+                # Linux-style EOF
+                self.flag_eof = True
+                raise EOF('End Of File (EOF).')
+            raise
+
+        if s == b'':
+            # BSD-style EOF
+            self.flag_eof = True
+            raise EOF('End Of File (EOF).')
+
+        s = self._decoder.decode(s, final=False)
+        self._log(s, 'read')
+        return s
