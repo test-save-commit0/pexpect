@@ -16,7 +16,24 @@ class Expecter(object):
 
     def expect_loop(self, timeout=-1):
         """Blocking expect"""
-        pass
+        if timeout is not None:
+            end_time = time.time() + timeout
+
+        while True:
+            idx = self.searcher.search(self.spawn.buffer, len(self.spawn.buffer))
+            if idx >= 0:
+                return idx
+
+            # No match
+            if timeout is not None and time.time() > end_time:
+                return self.searcher.timeout_index
+
+            # Read more data
+            incoming = self.spawn.read_nonblocking(self.spawn.maxread, timeout)
+            if incoming == b'':
+                return self.searcher.eof_index
+
+            self.spawn.buffer += incoming
 
 
 class searcher_string(object):
@@ -80,7 +97,25 @@ class searcher_string(object):
 
         If there is a match this returns the index of that string, and sets
         'start', 'end' and 'match'. Otherwise, this returns -1. """
-        pass
+        absend = len(buffer)
+        abstart = absend - freshlen
+
+        if searchwindowsize is None:
+            searchstart = abstart
+            searchend = absend
+        else:
+            searchstart = max(0, absend - searchwindowsize)
+            searchend = absend
+
+        for index, s in self._strings:
+            pos = buffer.find(s, searchstart, searchend)
+            if pos >= 0:
+                self.match = s
+                self.start = pos
+                self.end = pos + len(s)
+                return index
+
+        return -1
 
 
 class searcher_re(object):
@@ -143,4 +178,22 @@ class searcher_re(object):
 
         If there is a match this returns the index of that string, and sets
         'start', 'end' and 'match'. Otherwise, returns -1."""
-        pass
+        absend = len(buffer)
+        abstart = absend - freshlen
+
+        if searchwindowsize is None:
+            searchstart = abstart
+            searchend = absend
+        else:
+            searchstart = max(0, absend - searchwindowsize)
+            searchend = absend
+
+        for index, s in self._searches:
+            match = s.search(buffer, searchstart, searchend)
+            if match is not None:
+                self.match = match
+                self.start = match.start()
+                self.end = match.end()
+                return index
+
+        return -1
