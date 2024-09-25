@@ -18,7 +18,13 @@ class ExceptionPexpect(Exception):
         """This returns an abbreviated stack trace with lines that only concern
         the caller. In other words, the stack trace inside the Pexpect module
         is not included. """
-        pass
+        tblist = traceback.extract_tb(sys.exc_info()[2])
+        tblist = [item for item in tblist if self.__filter_not_pexpect(item[0])]
+        return ''.join(traceback.format_list(tblist))
+
+    def __filter_not_pexpect(self, filename):
+        """Return True if the filename is not in the pexpect module"""
+        return 'pexpect' not in filename.lower()
 
 
 class EOF(ExceptionPexpect):
