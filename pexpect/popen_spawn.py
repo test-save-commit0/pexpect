@@ -50,12 +50,24 @@ class PopenSpawn(SpawnBase):
 
     def _read_incoming(self):
         """Run in a thread to move output from a pipe to a queue."""
-        pass
+        while True:
+            try:
+                data = os.read(self.proc.stdout.fileno(), 1024)
+            except OSError:
+                # This happens when the fd is closed
+                break
+            if data == b'':
+                self._read_reached_eof = True
+                break
+            self._read_queue.put(data)
 
     def write(self, s):
         """This is similar to send() except that there is no return value.
         """
-        pass
+        if not isinstance(s, bytes):
+            s = s.encode(self.encoding, errors=self.codec_errors)
+        self.proc.stdin.write(s)
+        self.proc.stdin.flush()
 
     def writelines(self, sequence):
         """This calls write() for each element in the sequence.
@@ -64,34 +76,51 @@ class PopenSpawn(SpawnBase):
         list of strings. This does not add line separators. There is no return
         value.
         """
-        pass
+        for s in sequence:
+            self.write(s)
 
     def send(self, s):
         """Send data to the subprocess' stdin.
 
         Returns the number of bytes written.
         """
-        pass
+        if not isinstance(s, bytes):
+            s = s.encode(self.encoding, errors=self.codec_errors)
+        self.proc.stdin.write(s)
+        self.proc.stdin.flush()
+        return len(s)
 
     def sendline(self, s=''):
         """Wraps send(), sending string ``s`` to child process, with os.linesep
         automatically appended. Returns number of bytes written. """
-        pass
+        n = self.send(s)
+        n += self.send(self.crlf)
+        return n
 
     def wait(self):
         """Wait for the subprocess to finish.
 
         Returns the exit code.
         """
-        pass
+        return self.proc.wait()
 
     def kill(self, sig):
         """Sends a Unix signal to the subprocess.
 
         Use constants from the :mod:`signal` module to specify which signal.
         """
-        pass
+        if sys.platform != 'win32':
+            os.kill(self.proc.pid, sig)
+        else:
+            if sig == signal.SIGTERM:
+                self.proc.terminate()
+            elif sig == signal.CTRL_C_EVENT:
+                os.kill(self.proc.pid, signal.CTRL_C_EVENT)
+            elif sig == signal.CTRL_BREAK_EVENT:
+                os.kill(self.proc.pid, signal.CTRL_BREAK_EVENT)
+            else:
+                raise ValueError("Unsupported signal on Windows: {}".format(sig))
 
     def sendeof(self):
         """Closes the stdin pipe from the writing end."""
-        pass
+        self.proc.stdin.close()
