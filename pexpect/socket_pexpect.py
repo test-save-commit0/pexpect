@@ -51,27 +51,36 @@ class SocketSpawn(SpawnBase):
         Calling this method a second time does nothing, but if the file
         descriptor was closed elsewhere, :class:`OSError` will be raised.
         """
-        pass
+        if not self.closed:
+            self.socket.close()
+            self.closed = True
 
     def isalive(self):
         """ Alive if the fileno is valid """
-        pass
+        return not self.closed and self.socket.fileno() != -1
 
     def send(self, s) ->int:
         """Write to socket, return number of bytes written"""
-        pass
+        if isinstance(s, str):
+            s = s.encode(self.encoding)
+        return self.socket.send(s)
 
     def sendline(self, s) ->int:
         """Write to socket with trailing newline, return number of bytes written"""
-        pass
+        if isinstance(s, str):
+            s = s.encode(self.encoding)
+        return self.socket.send(s + b'\n')
 
     def write(self, s):
         """Write to socket, return None"""
-        pass
+        if isinstance(s, str):
+            s = s.encode(self.encoding)
+        self.socket.sendall(s)
 
     def writelines(self, sequence):
         """Call self.write() for each item in sequence"""
-        pass
+        for item in sequence:
+            self.write(item)
 
     def read_nonblocking(self, size=1, timeout=-1):
         """
@@ -89,4 +98,20 @@ class SocketSpawn(SpawnBase):
             ready to read. When -1 (default), use self.timeout. When 0, poll.
         :return: String containing the bytes read
         """
-        pass
+        import select
+
+        if timeout == -1:
+            timeout = self.timeout
+
+        try:
+            ready, _, _ = select.select([self.socket], [], [], timeout)
+            if not ready:
+                raise TIMEOUT('Timeout exceeded')
+            
+            data = self.socket.recv(size)
+            if not data:
+                raise EOF('End of file')
+            
+            return self.decoder.decode(data, final=False)
+        except socket.error as e:
+            raise EOF('Connection closed: %s' % str(e))
